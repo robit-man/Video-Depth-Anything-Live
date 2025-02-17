@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>Remote Depth Estimation Client</title>
+    <style>
+      body {
+        background: #000;
+        color: #fff;
+        text-align: center;
+        font-family: sans-serif;
+      }
+      video, img {
+        max-width: 90%;
+        margin: 10px auto;
+        display: block;
+      }
+      button {
+        font-size: 1.2em;
+        padding: 10px 20px;
+      }
+      #status {
+        margin: 20px;
+        font-size: 1.5em;
+      }
+      #status span {
+        margin: 0 15px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Remote Depth Estimation Client</h1>
+    <div id="status">
+      <span id="signalStatus">Signaling: 🔴</span>
+      <span id="inferenceStatus">Inference: 🔴</span>
+    </div>
+    <button id="startBtn">Start Video Capture</button>
+    <video id="inputVideo" autoplay playsinline style="display:none;"></video>
+    <h3>Depth Estimation Output</h3>
+    <img id="depthOutput" alt="Depth Output will appear here">
+    
+    <!-- Our client script is loaded as a module -->
+    <script type="module" src="client.js"></script>
+  </body>
+</html>
