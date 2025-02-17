@@ -11,54 +11,73 @@ const io = require('socket.io')(http, {
 
 // We'll support one inference server and multiple clients.
 let inferenceSocket = null;
-let clientSockets = {}; // Use an object mapping socket.id -> socket
+let clientSockets = {}; // Map: socket.id => socket
 
 io.on('connection', (socket) => {
   console.log(`Socket connected: ${socket.id}`);
 
-  // When an inference server connects, register it.
+  // Inference server registration.
   socket.on('register_inference', () => {
     inferenceSocket = socket;
     console.log(`Inference server registered: ${socket.id}`);
   });
 
-  // When a client connects, register it.
+  // Client registration.
   socket.on('register_client', () => {
     clientSockets[socket.id] = socket;
     console.log(`Client registered: ${socket.id}`);
   });
 
-  // Relay video frame from a client to the inference server.
+  // WebRTC signaling: client sends offer.
+  socket.on('webrtc_offer', (data) => {
+    console.log(`Received WebRTC offer from client ${socket.id}`);
+    // Attach the client ID.
+    data.client_id = socket.id;
+    if (inferenceSocket) {
+      inferenceSocket.emit('webrtc_offer', data);
+    }
+  });
+
+  // Inference server sends answer.
+  socket.on('webrtc_answer', (data) => {
+    const clientId = data.client_id;
+    console.log(`Received WebRTC answer for client ${clientId}`);
+    if (clientId && clientSockets[clientId]) {
+      clientSockets[clientId].emit('webrtc_answer', { sdp: data.sdp });
+    }
+  });
+
+  // Relay ICE candidates.
+  socket.on('webrtc_candidate', (data) => {
+    console.log(`Received ICE candidate from ${socket.id} for target ${data.target}`);
+    if (data.target === "inference" && inferenceSocket) {
+      // From client to inference server.
+      data.client_id = socket.id;
+      inferenceSocket.emit("webrtc_candidate", data);
+    } else if (data.target === "client" && data.client_id && clientSockets[data.client_id]) {
+      clientSockets[data.client_id].emit("webrtc_candidate", { candidate: data.candidate });
+    }
+  });
+
+  // Fallback: Relay video frames via Socket.IO.
   socket.on('video_frame', (data) => {
     console.log(`Video frame received from client ${socket.id}`);
-    // Attach the client id to the data.
     data.client_id = socket.id;
     if (inferenceSocket) {
-      inferenceSocket.emit('video_frame', data);
-    } else {
-      console.log('No inference server connected; cannot forward video frame.');
+      inferenceSocket.emit("video_frame", data);
     }
   });
 
-  // Also relay frames if the event name is "frame"
-  socket.on('frame', (data) => {
-    console.log(`Frame received from client ${socket.id}`);
-    data.client_id = socket.id;
-    if (inferenceSocket) {
-      inferenceSocket.emit('frame', data);
-    }
-  });
-
-  // Relay the processed depth frame from the inference server back to the originating client.
+  // Inference server sends back processed depth frames.
   socket.on('depth_frame', (data) => {
-    console.log(`Depth frame received from inference server with client_id ${data.client_id}`);
+    console.log(`Depth frame received for client ${data.client_id}`);
     const clientId = data.client_id;
     if (clientId && clientSockets[clientId]) {
-      clientSockets[clientId].emit('depth_frame', data);
+      clientSockets[clientId].emit("depth_frame", data);
     } else {
-      console.log(`Client ${clientId} not found; broadcasting depth frame to all clients.`);
+      // Fallback broadcast.
       Object.values(clientSockets).forEach((client) => {
-        client.emit('depth_frame', data);
+        client.emit("depth_frame", data);
       });
     }
   });

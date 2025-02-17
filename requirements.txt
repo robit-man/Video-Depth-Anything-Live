@@ -11,7 +11,9 @@ xformers
 einops
 easydict
 tqdm
-python-socketio[client]
+aiortc
+aiohttp
+python-socketio==5.12.1
 requests
 flask
 OpenEXR==3.3.1
