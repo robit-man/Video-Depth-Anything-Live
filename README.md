@@ -1,4 +1,4 @@
-<div align="center">
+<div align="left">
 <h1>Video Depth Anything ~ Livestream</h1>
   
 <img src="https://github.com/user-attachments/assets/7aec3a5f-28d8-4d4c-8fbc-d255a4353ae3" width="200px" style="border-radius:0.5rem;">
@@ -43,6 +43,9 @@ python3 server.py
 
 
 <hr>
+*** ORIGINAL REPOSITORY README CONTENT ***
+<hr>
+
   
 [**Sili Chen**](https://github.com/SiliChen321) · [**Hengkai Guo**](https://guohengkai.github.io/)<sup>&dagger;</sup> · [**Shengnan Zhu**](https://github.com/Shengnan-Zhu)  · [**Feihu Zhang**](https://github.com/zhizunhu)
 <br>
