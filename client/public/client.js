@@ -1,4 +1,4 @@
-import { io } from "./socket.io.esm.min.js";
+import { io } from "socket.io-client";
 
 const signalingServerUrl = "https://western-fantasy-soybean.glitch.me";
 const socket = io(signalingServerUrl);
@@ -6,11 +6,19 @@ const socket = io(signalingServerUrl);
 const startBtn = document.getElementById('startBtn');
 const video = document.getElementById('inputVideo');
 const depthImg = document.getElementById('depthOutput');
+
 const signalStatusEl = document.getElementById('signalStatus');
 const webrtcStatusEl = document.getElementById('webrtcStatus');
+const fallbackStatusEl = document.getElementById('fallbackStatus');
 
+// Mode selection buttons
+const webrtcModeBtn = document.getElementById('webrtcModeBtn');
+const fallbackModeBtn = document.getElementById('fallbackModeBtn');
+
+let communicationMode = null; // "webrtc" or "fallback"
 let pc; // RTCPeerConnection
 let dataChannel;
+let webrtcConnected = false;
 
 socket.on('connect', () => {
   console.log("Connected to signaling server");
@@ -23,10 +31,14 @@ socket.on('disconnect', () => {
   signalStatusEl.textContent = "Signaling: 🔴";
 });
 
+// WebRTC signaling handlers.
 socket.on("webrtc_answer", async (data) => {
   console.log("Received WebRTC answer");
-  const sdp = data.sdp;
-  await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp }));
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: data.sdp }));
+  } catch (err) {
+    console.error("Error setting remote description:", err);
+  }
 });
 
 socket.on("webrtc_candidate", async (data) => {
@@ -38,7 +50,14 @@ socket.on("webrtc_candidate", async (data) => {
   }
 });
 
-// Create the RTCPeerConnection and data channel.
+// Fallback: Handle depth frames from the server.
+socket.on("depth_frame", (data) => {
+  if (communicationMode === "fallback" && data.depth_image) {
+    depthImg.src = "data:image/jpeg;base64," + data.depth_image;
+    fallbackStatusEl.textContent = "Fallback (WS): 🟢";
+  }
+});
+
 function createPeerConnection() {
   const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
   pc = new RTCPeerConnection(config);
@@ -47,7 +66,6 @@ function createPeerConnection() {
       socket.emit("webrtc_candidate", { target: "inference", candidate: event.candidate });
     }
   };
-  // Listen for the data channel created by the inference server.
   pc.ondatachannel = (event) => {
     dataChannel = event.channel;
     setupDataChannel();
@@ -58,25 +76,22 @@ function setupDataChannel() {
   dataChannel.onopen = () => {
     console.log("Data channel open");
     webrtcStatusEl.textContent = "WebRTC: 🟢";
-    startSendingFrames();
+    webrtcConnected = true;
   };
   dataChannel.onclose = () => {
     console.log("Data channel closed");
     webrtcStatusEl.textContent = "WebRTC: 🔴";
+    webrtcConnected = false;
   };
   dataChannel.onmessage = (event) => {
-    // Assume the inference server sends back a base64 JPEG.
     depthImg.src = "data:image/jpeg;base64," + event.data;
   };
 }
 
 async function startWebRTC() {
   createPeerConnection();
-  // Create a data channel for sending video frames.
   dataChannel = pc.createDataChannel("video");
   setupDataChannel();
-
-  // Create an SDP offer and send it via signaling.
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   socket.emit("webrtc_offer", { sdp: offer.sdp });
@@ -85,6 +100,7 @@ async function startWebRTC() {
 let sendFrameInterval;
 function startSendingFrames() {
   sendFrameInterval = setInterval(() => {
+    if (video.readyState < 2) return;
     const width = video.videoWidth;
     const height = video.videoHeight;
     if (width && height) {
@@ -93,16 +109,31 @@ function startSendingFrames() {
       canvas.height = height;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, 0, 0, width, height);
-      // Use a lower quality setting (0.3) to reduce message size.
       const dataURL = canvas.toDataURL('image/jpeg', 0.3);
-      // Remove the data URL prefix.
       const base64Data = dataURL.split(",")[1];
-      if (dataChannel && dataChannel.readyState === "open") {
+      if (communicationMode === "webrtc" && webrtcConnected && dataChannel && dataChannel.readyState === "open") {
         dataChannel.send(base64Data);
+      } else if (communicationMode === "fallback") {
+        // Send the full dataURL for fallback.
+        socket.emit("video_frame", { image: dataURL });
       }
     }
-  }, 100); // Send a frame every 100ms.
+  }, 100);
 }
+
+webrtcModeBtn.addEventListener('click', () => {
+  communicationMode = "webrtc";
+  webrtcStatusEl.textContent = "WebRTC: Connecting...";
+  fallbackStatusEl.textContent = "Fallback (WS): (Not used)";
+  console.log("Communication mode set to WebRTC");
+});
+
+fallbackModeBtn.addEventListener('click', () => {
+  communicationMode = "fallback";
+  fallbackStatusEl.textContent = "Fallback (WS): Waiting...";
+  webrtcStatusEl.textContent = "WebRTC: (Not used)";
+  console.log("Communication mode set to Fallback (WS)");
+});
 
 startBtn.addEventListener('click', async () => {
   try {
@@ -110,7 +141,27 @@ startBtn.addEventListener('click', async () => {
     video.srcObject = stream;
     video.style.display = 'block';
     startBtn.style.display = 'none';
-    await startWebRTC();
+
+    if (!communicationMode) {
+      // Default to fallback if no mode selected.
+      communicationMode = "fallback";
+      fallbackStatusEl.textContent = "Fallback (WS): Waiting...";
+    }
+
+    if (communicationMode === "webrtc") {
+      await startWebRTC();
+      // Allow a few seconds for the data channel to connect.
+      setTimeout(() => {
+        if (!webrtcConnected) {
+          console.warn("WebRTC connection failed; switching to fallback.");
+          communicationMode = "fallback";
+          webrtcStatusEl.textContent = "WebRTC: (Fallback)";
+        }
+        startSendingFrames();
+      }, 3000);
+    } else {
+      startSendingFrames();
+    }
   } catch (err) {
     console.error("Error accessing webcam:", err);
   }

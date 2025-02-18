@@ -18,16 +18,17 @@
       button {
         font-size: 1.2em;
         padding: 10px 20px;
+        margin: 5px;
       }
       #status {
         margin: 20px;
         font-size: 1.5em;
       }
-      #status span {
+      #status span, #status div {
         margin: 0 15px;
       }
     </style>
-    <!-- We can load Socket.IO client from local if desired -->
+    <!-- Using local socket.io client via importmap -->
     <script type="importmap">
       {
         "imports": {
@@ -41,6 +42,12 @@
     <div id="status">
       <span id="signalStatus">Signaling: 🔴</span>
       <span id="webrtcStatus">WebRTC: 🔴</span>
+      <div id="fallbackStatus">Fallback (WS): 🔴</div>
+    </div>
+    <!-- Mode selection buttons -->
+    <div>
+      <button id="webrtcModeBtn">Use WebRTC</button>
+      <button id="fallbackModeBtn">Use Fallback (WS)</button>
     </div>
     <button id="startBtn">Start Video Capture</button>
     <video id="inputVideo" autoplay playsinline style="display:none;"></video>

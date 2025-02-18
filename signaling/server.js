@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
@@ -9,49 +8,41 @@ const io = require('socket.io')(http, {
   }
 });
 
-// We'll support one inference server and multiple clients.
 let inferenceSocket = null;
-let clientSockets = {}; // Map: socket.id => socket
+let clientSockets = {};
 
 io.on('connection', (socket) => {
   console.log(`Socket connected: ${socket.id}`);
 
-  // Inference server registration.
   socket.on('register_inference', () => {
     inferenceSocket = socket;
     console.log(`Inference server registered: ${socket.id}`);
   });
 
-  // Client registration.
   socket.on('register_client', () => {
     clientSockets[socket.id] = socket;
     console.log(`Client registered: ${socket.id}`);
   });
 
-  // WebRTC signaling: client sends offer.
+  // Relay WebRTC signaling events.
   socket.on('webrtc_offer', (data) => {
     console.log(`Received WebRTC offer from client ${socket.id}`);
-    // Attach the client ID.
     data.client_id = socket.id;
     if (inferenceSocket) {
       inferenceSocket.emit('webrtc_offer', data);
     }
   });
 
-  // Inference server sends answer.
   socket.on('webrtc_answer', (data) => {
-    const clientId = data.client_id;
-    console.log(`Received WebRTC answer for client ${clientId}`);
-    if (clientId && clientSockets[clientId]) {
-      clientSockets[clientId].emit('webrtc_answer', { sdp: data.sdp });
+    console.log(`Received WebRTC answer for client ${data.client_id}`);
+    if (data.client_id && clientSockets[data.client_id]) {
+      clientSockets[data.client_id].emit('webrtc_answer', { sdp: data.sdp });
     }
   });
 
-  // Relay ICE candidates.
   socket.on('webrtc_candidate', (data) => {
-    console.log(`Received ICE candidate from ${socket.id} for target ${data.target}`);
+    console.log(`ICE candidate from ${socket.id} for target ${data.target}`);
     if (data.target === "inference" && inferenceSocket) {
-      // From client to inference server.
       data.client_id = socket.id;
       inferenceSocket.emit("webrtc_candidate", data);
     } else if (data.target === "client" && data.client_id && clientSockets[data.client_id]) {
@@ -59,25 +50,31 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Fallback: Relay video frames via Socket.IO.
+  // Relay fallback events.
   socket.on('video_frame', (data) => {
     console.log(`Video frame received from client ${socket.id}`);
     data.client_id = socket.id;
     if (inferenceSocket) {
-      inferenceSocket.emit("video_frame", data);
+      inferenceSocket.emit('video_frame', data);
     }
   });
 
-  // Inference server sends back processed depth frames.
+  socket.on('frame', (data) => {
+    console.log(`Frame received from client ${socket.id}`);
+    data.client_id = socket.id;
+    if (inferenceSocket) {
+      inferenceSocket.emit('frame', data);
+    }
+  });
+
   socket.on('depth_frame', (data) => {
     console.log(`Depth frame received for client ${data.client_id}`);
     const clientId = data.client_id;
     if (clientId && clientSockets[clientId]) {
-      clientSockets[clientId].emit("depth_frame", data);
+      clientSockets[clientId].emit('depth_frame', data);
     } else {
-      // Fallback broadcast.
       Object.values(clientSockets).forEach((client) => {
-        client.emit("depth_frame", data);
+        client.emit('depth_frame', data);
       });
     }
   });
