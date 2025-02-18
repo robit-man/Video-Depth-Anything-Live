@@ -9,6 +9,38 @@
 - Signaling server for establishing communication between inference and client
 
 
+## Run Automatic VENV Setup + Flask Output of Depth Estimation from Camera Stream
+
+```bash
+python3 auto.py
+```
+
+
+## Run Automatic Optimized Camera Stream Estimation and Output
+
+```bash
+python3 auto_fast.py
+```
+
+
+## Run Remote Inference Capable Server Demo
+
+1. Create a [Glitch](https://glitch.com/) Account
+2. Create a Project
+3. Upload the contents of the [signaling](https://github.com/robit-man/Video-Depth-Anything-Live/tree/main/signaling) folder
+4. Replace the signaling server found in the [server.py](https://github.com/robit-man/Video-Depth-Anything-Live/blob/main/server.py) on line 278
+5. Replace the server link on line 19 in [client.js](https://github.com/robit-man/Video-Depth-Anything-Live/blob/main/client/public/client.js) with the same url
+
+6. Upload the contents of the [Client](https://github.com/robit-man/Video-Depth-Anything-Live/tree/main/client) folder to a new project
+7. Run the following and visit the url of the client glitch project to connect and facilitate remote inference on your local camera video stream
+
+```bash
+python3 server.py
+```
+
+
+
+
 
 <hr>
   
