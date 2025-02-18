@@ -1,5 +1,10 @@
 <div align="center">
-<h1>Video Depth Anything</h1>
+<h1>Video Depth Anything ~ Livestream</h1>
+
+# Additions:
+- Remote Inference on camera stream (unstable and insecure, but functional!)
+- VR Compatable frontend for experimental Telepresence in threejs
+- Signaling server for establishing communication between inference and client
   
 [**Sili Chen**](https://github.com/SiliChen321) · [**Hengkai Guo**](https://guohengkai.github.io/)<sup>&dagger;</sup> · [**Shengnan Zhu**](https://github.com/Shengnan-Zhu)  · [**Feihu Zhang**](https://github.com/zhizunhu)
 <br>
