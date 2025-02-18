@@ -1,59 +1,122 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <meta charset="UTF-8">
+    <meta charset="UTF-8" />
     <title>Remote Depth Estimation Client</title>
     <style>
+      @import url("https://fonts.googleapis.com/css2?family=Monomaniac+One&family=Oxanium:wght@200..800&family=Roboto+Mono:ital,wght@0,100..700;1,100..700&family=Turret+Road:wght@200;300;400;500;700;800&display=swap");
       body {
         background: #000;
         color: #fff;
         text-align: center;
         font-family: sans-serif;
+        margin: 0;
+        overflow: hidden;
       }
-      video, img {
+      *{
+        font-family: "Turret Road", serif;
+      }
+      video,
+      img {
         max-width: 90%;
-        margin: 10px auto;
         display: block;
+        height: 200px;
+        border-radius: 0.5rem;
+        overflow: hidden;
+        opacity: 0.5;
+        backdrop-filter: blur(10px) brightness(0.5);
       }
+
       button {
-        font-size: 1.2em;
+        font-size: 1.2rem;
         padding: 10px 20px;
-        margin: 5px;
+        background: #111a;
+        color: white;
+        border-radius: 0.25rem;
+        border: unset;
+      }
+      canvas {
+        position: fixed;
+        z-index: -1;
+        top: 0px;
+        left: 0px;
       }
       #status {
-        margin: 20px;
-        font-size: 1.5em;
+        display: flex;
+        gap: 0.5rem;
+        padding:0.5rem;
+        flex-flow: row;
       }
-      #status span, #status div {
+      #toprow {
+        justify-content: space-between;
+        display: flex;
+        flex-flow: row;
+      }
+      #data {
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        backdrop-filter: blur(10px) brightness(0.5);
+        display: flex;
+        flex-flow: column;
+        justify-content: center;
+        height: fit-content;
+        margin: 1rem;
+      }
+      #buttons {
+        display: flex;
+        flex-flow: wrap;
+        gap:0.5rem;
+      }
+      #videorow {
+        display: flex;
+        flex-flow: row;
+        gap: 1rem;
+        margin:0.5rem;
+      }
+      #status span,
+      #status div {
         margin: 0 15px;
       }
+      /* Hide the video element used for capturing the stream */
+      #inputVideo {
+        display: none;
+      }
     </style>
-    <!-- Using local socket.io client via importmap -->
+    <!-- Import map for socket.io-client and Three.js (and OrbitControls) -->
     <script type="importmap">
       {
         "imports": {
-          "socket.io-client": "./socket.io.esm.min.js"
+          "socket.io-client": "./socket.io.esm.min.js",
+          "three": "https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.module.js",
+          "OrbitControls": "https://cdn.jsdelivr.net/npm/three@0.150.1/examples/jsm/controls/OrbitControls.js"
         }
       }
     </script>
   </head>
   <body>
-    <h1>Remote Depth Estimation Client</h1>
-    <div id="status">
-      <span id="signalStatus">Signaling: 🔴</span>
-      <span id="webrtcStatus">WebRTC: 🔴</span>
-      <div id="fallbackStatus">Fallback (WS): 🔴</div>
+    <div id="toprow">
+      <div id="data">
+        <div id="status">
+          <span id="signalStatus">Signaling: 🔴</span>
+          <span id="webrtcStatus">WebRTC: 🔴</span>
+          <div id="fallbackStatus">Fallback (WS): 🔴</div>
+        </div>
+        <!-- Mode selection buttons -->
+        <div id="buttons">
+          <button id="webrtcModeBtn">Use WebRTC</button>
+          <button id="fallbackModeBtn">Use Fallback (WS)</button>
+          <button id="startBtn">Start Video Capture</button>
+
+        </div>
+      </div>
+      <div id="videorow">
+        <!-- The video element (hidden) will supply the camera stream -->
+        <video id="inputVideo" autoplay playsinline></video>
+        <!-- An image element to show the raw depth output (optional) -->
+        <img id="depthOutput"  />
+      </div>
     </div>
-    <!-- Mode selection buttons -->
-    <div>
-      <button id="webrtcModeBtn">Use WebRTC</button>
-      <button id="fallbackModeBtn">Use Fallback (WS)</button>
-    </div>
-    <button id="startBtn">Start Video Capture</button>
-    <video id="inputVideo" autoplay playsinline style="display:none;"></video>
-    <h3>Depth Estimation Output</h3>
-    <img id="depthOutput" alt="Depth Output will appear here">
-    
+    <!-- Our client code -->
     <script type="module" src="client.js"></script>
   </body>
 </html>
