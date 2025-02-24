@@ -8,6 +8,11 @@
 - VR Compatable frontend for experimental Telepresence in threejs
 - Signaling server for establishing communication between inference and client
 
+## First pull model weights
+
+```bash
+bash get_weights.sh
+```
 
 ## Run Automatic VENV Setup + Flask Output of Depth Estimation from Camera Stream
 
