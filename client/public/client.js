@@ -7,15 +7,21 @@ import { XRControllerModelFactory } from "https://cdn.jsdelivr.net/npm/three@0.1
 /* 
    Combined client logic with fallback (WS) vs WebRTC modes, plus Three.js XR scene.
    - Communication mode can be "webrtc" or "fallback" chosen by user.
-   - If webrtc fails, we fallback to websocket transmissions automatically.
-   - On each frame, we either send the image to the inference server via datachannel or fallback socket.
-   - In response, we get a depth frame which we store in #depthOutput. 
-   - Meanwhile, we run a dynamic Three.js scene that creates a points geometry from #depthOutput + #inputVideo.
+   - If WebRTC fails, fallback to websockets automatically.
+   - On each frame, we send the image to the inference server either via DataChannel or fallback socket.
+   - The inference server returns a depth frame, stored in #depthOutput.
+   - Meanwhile, a dynamic Three.js scene creates a geometry from #depthOutput + #inputVideo.
+   - Two sliders: 
+        - #pixelScaleSlider changes how far in XY each point is spaced.
+        - #sizeslider changes how big each point is.
+   - Another slider #depthslider changes the Z scale factor for the depth.
+   - A checkbox (#singlemesh) toggles between a continuous planar mesh (with connected triangles)
+     and the original points-based grid.
 */
 
-////////////////////////////////////////////////////////////
-// HTML element references
-////////////////////////////////////////////////////////////
+// ----------------------------------------------------------------
+// HTML element references & Socket.IO
+// ----------------------------------------------------------------
 const signalingServerUrl = "https://western-fantasy-soybean.glitch.me";
 const socket = io(signalingServerUrl);
 
@@ -23,6 +29,7 @@ const socket = io(signalingServerUrl);
 const startBtn = document.getElementById('startBtn');
 const videoEl = document.getElementById('inputVideo');
 const depthImgEl = document.getElementById('depthOutput');
+
 const signalStatusEl = document.getElementById('signalStatus');
 const webrtcStatusEl = document.getElementById('webrtcStatus');
 const fallbackStatusEl = document.getElementById('fallbackStatus');
@@ -30,7 +37,7 @@ const webrtcModeBtn = document.getElementById('webrtcModeBtn');
 const fallbackModeBtn = document.getElementById('fallbackModeBtn');
 
 // Communication mode: "webrtc" or "fallback"
-let communicationMode = null;
+let communicationMode = null; 
 let pc; // RTCPeerConnection
 let dataChannel;
 let webrtcConnected = false;
@@ -41,15 +48,14 @@ socket.on('connect', () => {
   signalStatusEl.textContent = "Signaling: 🟢";
   socket.emit("register_client");
 });
-
 socket.on('disconnect', () => {
   console.log("Disconnected from signaling server");
   signalStatusEl.textContent = "Signaling: 🔴";
 });
 
-////////////////////////////////////////////////////////////
-// WEBRTC-SPECIFIC SIGNALING
-////////////////////////////////////////////////////////////
+// ---------------------------
+// WebRTC-Specific Signaling
+// ---------------------------
 socket.on("webrtc_answer", async (data) => {
   console.log("Received WebRTC answer");
   try {
@@ -69,34 +75,32 @@ socket.on("webrtc_candidate", async (data) => {
   }
 });
 
-////////////////////////////////////////////////////////////
-// FALLBACK: depth_frame from the server
-////////////////////////////////////////////////////////////
+// ---------------------------
+// Fallback Depth Frames
+// ---------------------------
 socket.on("depth_frame", (data) => {
+  // Only process if in fallback mode
   if (communicationMode === "fallback" && data.depth_image) {
     depthImgEl.src = "data:image/jpeg;base64," + data.depth_image;
     fallbackStatusEl.textContent = "Fallback (WS): 🟢";
   }
 });
 
-////////////////////////////////////////////////////////////
-// CREATE/SETUP WEBRTC
-////////////////////////////////////////////////////////////
+// ---------------------------
+// Create / Setup WebRTC
+// ---------------------------
 function createPeerConnection() {
   const config = {
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" }
-      // Add a TURN server here if needed
+      // If you need a TURN server, add it here
     ]
   };
   pc = new RTCPeerConnection(config);
 
   pc.onicecandidate = (event) => {
     if (event.candidate) {
-      socket.emit("webrtc_candidate", {
-        target: "inference",
-        candidate: event.candidate
-      });
+      socket.emit("webrtc_candidate", { target: "inference", candidate: event.candidate });
     }
   };
 
@@ -118,7 +122,7 @@ function setupDataChannel() {
     webrtcConnected = false;
   };
   dataChannel.onmessage = (event) => {
-    // In webrtc mode, depth frames come via datachannel messages
+    // Depth frames in "webrtc" mode come via datachannel
     depthImgEl.src = "data:image/jpeg;base64," + event.data;
   };
 }
@@ -132,38 +136,40 @@ async function startWebRTC() {
   socket.emit("webrtc_offer", { sdp: offer.sdp });
 }
 
-////////////////////////////////////////////////////////////
-// FRAME-SENDING LOGIC
-////////////////////////////////////////////////////////////
+// ---------------------------
+// Frame Sending Logic
+// ---------------------------
 let sendFrameInterval;
 function startSendingFrames() {
   sendFrameInterval = setInterval(() => {
-    if (videoEl.readyState < 2) return;
+    if (videoEl.readyState < 2) return; // not ready
     const width = videoEl.videoWidth;
     const height = videoEl.videoHeight;
     if (width && height) {
+      // Draw the current video frame into a canvas
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(videoEl, 0, 0, width, height);
+
+      // Convert to base64
       const dataURL = canvas.toDataURL('image/jpeg', 0.3);
       const base64Data = dataURL.split(",")[1];
 
+      // Send via datachannel or fallback socket
       if (communicationMode === "webrtc" && webrtcConnected && dataChannel && dataChannel.readyState === "open") {
-        // Send just the base64 payload
         dataChannel.send(base64Data);
       } else if (communicationMode === "fallback") {
-        // Send the entire dataURL to the server
         socket.emit("video_frame", { image: dataURL });
       }
     }
-  }, 100); // ~10 FPS
+  }, 100); // ~10 fps
 }
 
-////////////////////////////////////////////////////////////
-// MODE BUTTONS
-////////////////////////////////////////////////////////////
+// ---------------------------
+// Mode Buttons
+// ---------------------------
 webrtcModeBtn.addEventListener('click', () => {
   communicationMode = "webrtc";
   webrtcStatusEl.textContent = "WebRTC: Connecting...";
@@ -185,16 +191,14 @@ startBtn.addEventListener('click', async () => {
     videoEl.style.display = 'block';
     startBtn.style.display = 'none';
 
-    // If user hasn't clicked one, default to fallback
+    // Default to fallback if user hasn't chosen a mode
     if (!communicationMode) {
       communicationMode = "fallback";
       fallbackStatusEl.textContent = "Fallback (WS): Waiting...";
     }
 
-    // Attempt WebRTC if chosen
     if (communicationMode === "webrtc") {
       await startWebRTC();
-      // Wait a bit for datachannel to connect
       setTimeout(() => {
         if (!webrtcConnected) {
           console.warn("WebRTC connection failed or not connected in time; switching to fallback.");
@@ -205,7 +209,6 @@ startBtn.addEventListener('click', async () => {
         startSendingFrames();
       }, 3000);
     } else {
-      // fallback
       startSendingFrames();
     }
   } catch (err) {
@@ -213,9 +216,9 @@ startBtn.addEventListener('click', async () => {
   }
 });
 
-////////////////////////////////////////////////////////////
-// THREE.JS + WEBXR SCENE
-////////////////////////////////////////////////////////////
+// ----------------------------------------------------------------
+// THREE.js + WebXR Scene
+// ----------------------------------------------------------------
 let container;
 let camera, scene, renderer;
 let controller1, controller2;
@@ -229,17 +232,16 @@ let cameraVector = new THREE.Vector3();
 const prevGamePads = new Map();
 const speedFactor = [0.1, 0.1, 0.1, 0.1];
 
-// geometry references
+// Geometry references
 let depthMesh = null;
 let depthGeometry = null;
 let depthPositions = null;
 let depthColors = null;
 
-// track the known width/height for depth image
 let knownDepthWidth = 0;
 let knownDepthHeight = 0;
 
-// WASD states
+// WASD controls
 let keyStates = { w: false, a: false, s: false, d: false };
 
 initThree();
@@ -250,17 +252,13 @@ function initThree() {
   document.body.appendChild(container);
 
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x808080);
+  scene.background = new THREE.Color(0x000000);
 
   camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 500);
   camera.position.set(0, 1.6, 50);
 
-  // simple floor
-  // const gridHelper = new THREE.GridHelper(50, 50, 0xeeeeee, 0x888888);
-  // scene.add(gridHelper);
-
   scene.add(new THREE.HemisphereLight(0x808080, 0x606060));
-  let dirLight = new THREE.DirectionalLight(0xffffff);
+  const dirLight = new THREE.DirectionalLight(0xffffff);
   dirLight.position.set(0, 200, 0);
   scene.add(dirLight);
 
@@ -278,6 +276,7 @@ function initThree() {
   controls.target.set(0, 1.6, 0);
   controls.update();
 
+  // Controllers
   controller1 = renderer.xr.getController(0);
   controller1.name = "left";
   controller1.addEventListener("selectstart", onSelectStart);
@@ -300,8 +299,11 @@ function initThree() {
   scene.add(controllerGrip2);
 
   raycaster = new THREE.Raycaster();
-  let rayGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-1)]);
-  let line = new THREE.Line(rayGeo);
+  const rayGeo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 0, -1)
+  ]);
+  const line = new THREE.Line(rayGeo);
   line.name = "line";
   line.scale.z = 5;
   controller1.add(line.clone());
@@ -312,18 +314,39 @@ function initThree() {
   scene.add(dolly);
   dolly.add(camera, controller1, controller2, controllerGrip1, controllerGrip2);
 
-  // WASD
+  // WASD event listeners
   window.addEventListener('keydown', (e) => {
-    if (keyStates.hasOwnProperty(e.key)) keyStates[e.key] = true;
+    if (keyStates.hasOwnProperty(e.key)) {
+      keyStates[e.key] = true;
+    }
   });
   window.addEventListener('keyup', (e) => {
-    if (keyStates.hasOwnProperty(e.key)) keyStates[e.key] = false;
+    if (keyStates.hasOwnProperty(e.key)) {
+      keyStates[e.key] = false;
+    }
   });
 
   window.addEventListener("resize", onWindowResize);
+
+  // NEW FEATURE: Listen for singlemesh toggle changes.
+  // Assumes a checkbox input with id "singlemesh" exists on the frontend.
+  const singleMeshToggle = document.getElementById("singlemesh");
+  if (singleMeshToggle) {
+    singleMeshToggle.addEventListener("change", () => {
+      // Rebuild geometry when toggled.
+      if (depthImgEl.naturalWidth && depthImgEl.naturalHeight) {
+        rebuildDepthGeometry(depthImgEl.naturalWidth, depthImgEl.naturalHeight);
+      }
+    });
+  }
 }
 
+/**
+ * Rebuild geometry (pixel scale + point size) from sliders.
+ * When "singlemesh" is enabled, build a continuous grid by generating indices to connect adjacent vertices.
+ */
 function rebuildDepthGeometry(width, height) {
+  // Remove existing mesh if any
   if (depthMesh) {
     scene.remove(depthMesh);
     depthMesh.geometry.dispose();
@@ -337,31 +360,60 @@ function rebuildDepthGeometry(width, height) {
   const positions = new Float32Array(numPoints * 3);
   const colors = new Float32Array(numPoints * 3);
 
+  // Get pixel spacing from slider
+  const xySlider = document.getElementById("pixelScaleSlider");
+  const xyScaleVal = parseFloat(xySlider.value) || 0.1;
+
   let i3 = 0;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      // scale XY by 0.1 => 10x smaller
-      positions[i3 + 0] = (x - width / 2) * 0.1;
-      positions[i3 + 1] = -(y - height / 2) * 0.1;
-      positions[i3 + 2] = 0; 
-      // default color
+      positions[i3 + 0] = (x - width / 2) * xyScaleVal;
+      positions[i3 + 1] = -(y - height / 2) * xyScaleVal;
+      positions[i3 + 2] = 0; // initial z; will be updated based on depth
       colors[i3 + 0] = 1.0;
       colors[i3 + 1] = 1.0;
       colors[i3 + 2] = 1.0;
       i3 += 3;
     }
   }
-
   depthGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   depthGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+  // If in singlemesh mode, build indices to form a continuous grid mesh.
+  const singleMeshToggle = document.getElementById("singlemesh");
+  if (singleMeshToggle && singleMeshToggle.checked) {
+    const indices = [];
+    for (let y = 0; y < height - 1; y++) {
+      for (let x = 0; x < width - 1; x++) {
+        const i = y * width + x;
+        // First triangle of the quad
+        indices.push(i, i + width, i + 1);
+        // Second triangle of the quad
+        indices.push(i + width, i + width + 1, i + 1);
+      }
+    }
+    depthGeometry.setIndex(indices);
+  }
+
   depthGeometry.computeBoundingSphere();
 
-  let mat = new THREE.PointsMaterial({
-    vertexColors: true,
-    size: 1.0
-  });
-
-  depthMesh = new THREE.Points(depthGeometry, mat);
+  let material;
+  if (singleMeshToggle && singleMeshToggle.checked) {
+    material = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      side: THREE.DoubleSide
+    });
+    depthMesh = new THREE.Mesh(depthGeometry, material);
+  } else {
+    const sizeSlider = document.getElementById("sizeslider");
+    const pointSize = parseFloat(sizeSlider.value) || 0.5;
+    material = new THREE.PointsMaterial({
+      vertexColors: true,
+      size: pointSize
+    });
+    depthMesh = new THREE.Points(depthGeometry, material);
+  }
+  
   depthMesh.position.set(0, 1, -2);
   scene.add(depthMesh);
 
@@ -372,19 +424,27 @@ function rebuildDepthGeometry(width, height) {
   knownDepthHeight = height;
 }
 
+/**
+ * Update geometry Z offset and vertex colors each frame.
+ * Each vertex's z-value is computed from the brightness of the corresponding depth pixel.
+ */
 function updateDepthGeometry() {
   if (!depthImgEl.complete || depthImgEl.naturalWidth === 0) return;
   if (videoEl.videoWidth === 0) return;
 
+  const depthSlider = document.getElementById("depthslider"); 
+  const scaleVal = parseFloat(depthSlider.value) || 40;
+
   const depthW = depthImgEl.naturalWidth;
   const depthH = depthImgEl.naturalHeight;
 
+  // Rebuild geometry if dimensions change or if not yet created
   if (depthW !== knownDepthWidth || depthH !== knownDepthHeight || !depthMesh) {
     rebuildDepthGeometry(depthW, depthH);
   }
   if (!depthMesh) return;
 
-  // read #depthOutput
+  // Draw depth image into a canvas for reading pixel data
   const depthCanvas = document.createElement('canvas');
   depthCanvas.width = depthW;
   depthCanvas.height = depthH;
@@ -392,7 +452,7 @@ function updateDepthGeometry() {
   depthCtx.drawImage(depthImgEl, 0, 0, depthW, depthH);
   const depthData = depthCtx.getImageData(0, 0, depthW, depthH).data;
 
-  // read inputVideo
+  // Draw video image into a canvas for color sampling
   const colorW = videoEl.videoWidth;
   const colorH = videoEl.videoHeight;
   const colorCanvas = document.createElement('canvas');
@@ -410,23 +470,16 @@ function updateDepthGeometry() {
       const gD = depthData[idxDepth + 1];
       const bD = depthData[idxDepth + 2];
       const gray = (rD + gD + bD) / 3;
-
-      // scale factor
-      const zVal = (gray / 255) * 40;
+      const zVal = (gray / 255) * scaleVal;
       depthPositions[i3 + 2] = zVal;
 
-      // color sampling
+      // Sample color from the video feed
       const colorX = Math.floor(x * (colorW / depthW));
       const colorY = Math.floor(y * (colorH / depthH));
       const idxColor = (colorY * colorW + colorX) * 4;
-      const rC = colorData[idxColor + 0] / 255;
-      const gC = colorData[idxColor + 1] / 255;
-      const bC = colorData[idxColor + 2] / 255;
-
-      depthColors[i3 + 0] = rC;
-      depthColors[i3 + 1] = gC;
-      depthColors[i3 + 2] = bC;
-
+      depthColors[i3 + 0] = colorData[idxColor + 0] / 255;
+      depthColors[i3 + 1] = colorData[idxColor + 1] / 255;
+      depthColors[i3 + 2] = colorData[idxColor + 2] / 255;
       i3 += 3;
     }
   }
@@ -435,6 +488,9 @@ function updateDepthGeometry() {
   depthGeometry.attributes.color.needsUpdate = true;
 }
 
+// ---------------------------
+// Render / Animation Loop
+// ---------------------------
 function animate() {
   renderer.setAnimationLoop(render);
 }
@@ -448,14 +504,15 @@ function render() {
   renderer.render(scene, camera);
 }
 
+// XR pointer intersection placeholders
 function intersectObjects(controller) {
   let line = controller.getObjectByName("line");
   line.scale.z = 5; 
 }
-
 function onSelectStart(e) {}
 function onSelectEnd(e) {}
 
+// XR gamepad movement
 function dollyMoveXR() {
   const session = renderer.xr.getSession();
   if (!session) return;
@@ -471,10 +528,11 @@ function dollyMoveXR() {
       if (!source.gamepad) continue;
       const old = prevGamePads.get(source);
       const data = {
-        buttons: source.gamepad.buttons.map(b=>b.value),
+        buttons: source.gamepad.buttons.map(b => b.value),
         axes: source.gamepad.axes.slice(0)
       };
       const controller = renderer.xr.getController(i++);
+
       if (old) {
         let ax2 = data.axes[2]; // turn
         let ax3 = data.axes[3]; // forward/back
@@ -491,6 +549,7 @@ function dollyMoveXR() {
   }
 }
 
+// Desktop WASD movement
 function dollyMoveWASD() {
   let forward = new THREE.Vector3();
   camera.getWorldDirection(forward);
