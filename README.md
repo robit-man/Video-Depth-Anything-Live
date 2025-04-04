@@ -8,6 +8,12 @@
 - VR Compatable frontend for experimental Telepresence in threejs
 - Signaling server for establishing communication between inference and client
 
+Decord and other deps require older python 3.8
+
+```bash
+sudo apt update && sudo apt install -y build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev liblzma-dev && cd /usr/src && sudo wget https://www.python.org/ftp/python/3.8.18/Python-3.8.18.tgz && sudo tar xzf Python-3.8.18.tgz && cd Python-3.8.18 && sudo ./configure --enable-optimizations && sudo make -j$(nproc) && sudo make altinstall
+```
+
 ## First pull model weights
 
 ```bash
